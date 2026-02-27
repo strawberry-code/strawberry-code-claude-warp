@@ -1,10 +1,10 @@
 # ClaudeWarp
 
-A native macOS app that proxies the Anthropic Messages API, letting you use Claude Code's MAX subscription as an API backend. No separate API key needed. Just point your client at `http://localhost:8082/v1/messages` and you're done.
+A native macOS app that proxies the Anthropic Messages API, letting you use any valid Claude Code subscription (or Bedrock) as an API backend. No separate API key needed. Just point your client at `http://localhost:8082/v1/messages` and you're done.
 
 ## What it does
 
-ClaudeWarp runs as a menu bar app on macOS. It exposes a local Anthropic API-compatible endpoint that converts requests into headless `claude` calls. Any tool that speaks the Anthropic Messages API (LiteLLM, Open Interpreter, curl, whatever) can hit it and use your Claude Code subscription.
+ClaudeWarp runs as a menu bar app on macOS. It exposes a local Anthropic API-compatible endpoint that converts requests into headless `claude` calls. Any tool that speaks the Anthropic Messages API (LiteLLM, Open Interpreter, curl, whatever) can hit it and use whatever Claude Code subscription or Bedrock credentials you have configured in `~/.claude/settings.json`.
 
 ## Install
 
@@ -51,4 +51,4 @@ make run
 
 ---
 
-Built because waiting for an official Claude API with the MAX subscription is stupid.
+Works with any Claude Code subscription plan or Bedrock setup. Settings are read from your existing `~/.claude/settings.json`.
