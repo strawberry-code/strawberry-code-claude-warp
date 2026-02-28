@@ -162,6 +162,9 @@ final class ProxyServer: @unchecked Sendable {
     // MARK: - Routing
 
     private func routeRequest(_ request: HTTPRequest, on connection: NWConnection) {
+        let hdrs = request.headers.map { "\($0.0): \($0.1)" }.joined(separator: ", ")
+        print("[ClaudeWarp] \(request.method) \(request.path) | headers=[\(hdrs)]")
+
         // Handle CORS preflight
         if request.method == "OPTIONS" {
             sendResponse(on: connection, status: 204, statusText: "No Content", headers: corsHeaders(), body: Data())
@@ -172,11 +175,15 @@ final class ProxyServer: @unchecked Sendable {
         case ("GET", "/health"):
             handleHealth(on: connection)
 
+        case ("GET", "/v1/models"):
+            handleModels(on: connection)
+
         case ("POST", "/v1/messages"):
             DispatchQueue.main.async { self.state.incrementRequestCount() }
             handleMessages(request, on: connection)
 
         default:
+            print("[ClaudeWarp] ⚠ 404 Not Found: \(request.method) \(request.path)")
             let body = #"{"error":"Not Found"}"#.data(using: .utf8)!
             sendResponse(on: connection, status: 404, statusText: "Not Found",
                         headers: corsHeaders(contentType: "application/json"), body: body)
@@ -187,6 +194,32 @@ final class ProxyServer: @unchecked Sendable {
 
     private func handleHealth(on connection: NWConnection) {
         let body = #"{"status":"ok","backend":"claude-cli"}"#.data(using: .utf8)!
+        sendResponse(on: connection, status: 200, statusText: "OK",
+                    headers: corsHeaders(contentType: "application/json"), body: body)
+    }
+
+    // MARK: - Models endpoint
+
+    private func handleModels(on connection: NWConnection) {
+        let models = state.availableModels.isEmpty
+            ? ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
+            : state.availableModels
+
+        let modelObjects = models.map { id -> [String: Any] in
+            [
+                "id": id,
+                "type": "model",
+                "display_name": id,
+                "created_at": "2025-01-01T00:00:00Z",
+            ]
+        }
+        let response: [String: Any] = [
+            "data": modelObjects,
+            "has_more": false,
+            "first_id": models.first ?? "",
+            "last_id": models.last ?? "",
+        ]
+        let body = try! JSONSerialization.data(withJSONObject: response)
         sendResponse(on: connection, status: 200, statusText: "OK",
                     headers: corsHeaders(contentType: "application/json"), body: body)
     }
@@ -209,7 +242,8 @@ final class ProxyServer: @unchecked Sendable {
 
         let prompt = ClaudeBridge.formatMessages(messages)
         let systemPrompt = ClaudeBridge.buildSystemPrompt(system: system, tools: tools)
-        let modelFlag = ClaudeBridge.resolveModelFlag(modelName)
+        let effectiveModel = state.selectedModel.isEmpty ? modelName : state.selectedModel
+        let modelFlag = ClaudeBridge.resolveModelFlag(effectiveModel)
         let claudePath = state.claudePath
         let configDir = state.activeEnvironment?.configDir
 

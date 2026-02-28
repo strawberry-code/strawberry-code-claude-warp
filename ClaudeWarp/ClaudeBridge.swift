@@ -185,13 +185,27 @@ enum ClaudeBridge {
             args.append(contentsOf: ["--system-prompt", sys])
         }
 
-        // Filter out CLAUDECODE env var to avoid nested session block
+        // Ambiente pulito per il subprocess claude
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "CLAUDECODE")
+        env.removeValue(forKey: "CI")
+        env["TERM"] = "dumb"
+        if env["HOME"] == nil {
+            env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        }
+        if env["PATH"] == nil {
+            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        }
 
-        // Set config directory for the selected environment
+        // Set config directory per il settings.json dell'ambiente selezionato.
+        // Le credenziali OAuth restano in $HOME/.claude.json (gestite da Claude CLI).
         if let configDir = configDir {
             env["CLAUDE_CONFIG_DIR"] = configDir
+        }
+        // Rimuovi CLAUDE_CONFIG_DIR se punta al default — evita conflitto con le credenziali OAuth
+        let home = env["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
+        if env["CLAUDE_CONFIG_DIR"] == "\(home)/.claude" {
+            env.removeValue(forKey: "CLAUDE_CONFIG_DIR")
         }
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -229,9 +243,12 @@ enum ClaudeBridge {
                 let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
 
                 if process.terminationStatus != 0 {
-                    let errMsg = String(data: stderrData, encoding: .utf8) ?? "Unknown error"
+                    let stderr = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let stdout = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let detail = stderr.isEmpty ? (stdout.isEmpty ? "exit code \(process.terminationStatus)" : stdout) : stderr
+                    print("[ClaudeWarp] CLI failed: exit=\(process.terminationStatus) stderr=\(stderr.prefix(200)) stdout=\(stdout.prefix(200))")
                     continuation.resume(returning: CLIResult(
-                        text: "Claude CLI error: \(errMsg)",
+                        text: "Claude CLI error: \(detail)",
                         inputTokens: 0, outputTokens: 0, isError: true
                     ))
                     return

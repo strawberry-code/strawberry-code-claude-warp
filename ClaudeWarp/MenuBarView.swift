@@ -18,6 +18,7 @@ struct MenuBarView: View {
             Divider()
             controlsSection
             environmentSection
+            modelsSection
             Divider()
             clientConfigSection
             Divider()
@@ -124,6 +125,35 @@ struct MenuBarView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             state.activeEnvironmentId = env.id
+        }
+    }
+
+    @ViewBuilder
+    private var modelsSection: some View {
+        if !state.availableModels.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Modello")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(state.availableModels, id: \.self) { model in
+                    modelRadioRow(model)
+                }
+            }
+        }
+    }
+
+    private func modelRadioRow(_ model: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: state.selectedModel == model ? "largecircle.fill.circle" : "circle")
+                .font(.caption)
+                .foregroundStyle(state.selectedModel == model ? Color.accentColor : Color.secondary)
+            Text(model)
+                .font(.caption)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            state.selectedModel = model
         }
     }
 

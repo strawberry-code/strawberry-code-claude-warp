@@ -80,6 +80,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self?.updateIcon()
         }
 
+        // Fetch modelli all'avvio
+        Task { await controller.state.fetchModels() }
+
+        // Timer per refetch modelli ogni ora
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { await self.controller.state.fetchModels() }
+        }
+
         // Auto-start
         if controller.state.autoStart {
             controller.startServer()

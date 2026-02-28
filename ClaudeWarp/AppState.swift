@@ -41,6 +41,12 @@ final class AppState {
         environments.first { $0.id == activeEnvironmentId }
     }
 
+    // MARK: - Model selection
+    var availableModels: [String] = []
+    var selectedModel: String {
+        didSet { UserDefaults.standard.set(selectedModel, forKey: "selectedModel") }
+    }
+
     // MARK: - Computed
     var endpointURL: String {
         "http://\(host):\(port)"
@@ -50,7 +56,7 @@ final class AppState {
     init() {
         let defaults = UserDefaults.standard
         self.host = defaults.string(forKey: "host") ?? "127.0.0.1"
-        self.port = defaults.object(forKey: "port") as? Int ?? 8082
+        self.port = defaults.object(forKey: "port") as? Int ?? 8989
         self.claudePath = defaults.string(forKey: "claudePath") ?? AppState.detectClaudePath()
         self.autoStart = defaults.object(forKey: "autoStart") as? Bool ?? true
 
@@ -65,6 +71,9 @@ final class AppState {
         }
         self.environments = loadedEnvs
         self.activeEnvironmentId = defaults.string(forKey: "activeEnvironmentId") ?? loadedEnvs.first?.configDir ?? ""
+
+        // Load selected model
+        self.selectedModel = defaults.string(forKey: "selectedModel") ?? ""
     }
 
     // MARK: - Helpers
@@ -140,5 +149,76 @@ final class AppState {
 
     func incrementRequestCount() {
         requestCount += 1
+    }
+
+    private static let defaultModels = [
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    ]
+
+    func fetchModels() async {
+        // Mostra subito i modelli default, poi aggiorna se claude models risponde
+        if availableModels.isEmpty {
+            await MainActor.run { self.availableModels = AppState.defaultModels }
+        }
+
+        var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "CLAUDECODE")
+        env.removeValue(forKey: "CI")
+        env["TERM"] = "dumb"
+        if env["HOME"] == nil {
+            env["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        }
+        if env["PATH"] == nil {
+            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        }
+        let home = env["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
+        if let configDir = activeEnvironment?.configDir, configDir != "\(home)/.claude" {
+            env["CLAUDE_CONFIG_DIR"] = configDir
+        }
+
+        let process = Process()
+        let pipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: claudePath)
+        process.arguments = ["models"]
+        process.environment = env
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+
+            // Timeout 5 secondi — SIGKILL se SIGTERM non basta
+            let pid = process.processIdentifier
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5)) {
+                if process.isRunning {
+                    process.terminate()
+                    DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(1)) {
+                        if process.isRunning { kill(pid, SIGKILL) }
+                    }
+                }
+            }
+
+            process.waitUntilExit()
+
+            guard process.terminationStatus == 0 else {
+                print("[ClaudeWarp] claude models exit=\(process.terminationStatus)")
+                return
+            }
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            let lines = output.split(separator: "\n")
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !$0.contains("Not logged in") }
+
+            if !lines.isEmpty {
+                await MainActor.run { self.availableModels = lines }
+            }
+        } catch {
+            print("[ClaudeWarp] Error fetching models: \(error)")
+        }
     }
 }
